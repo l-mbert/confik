@@ -5,9 +5,9 @@
 ## Install
 
 ```bash
-npm install -g confik
+npm install -g @confik/cli
 # or
-pnpm add -g confik
+pnpm add -g @confik/cli
 ```
 
 During install, the correct platform binary is selected via optionalDependencies and copied into `bin/confik` by `scripts/install.js`.
