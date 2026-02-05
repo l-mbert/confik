@@ -5,13 +5,13 @@
 ## Install
 
 ```bash
-npm install @confik/cli
+npm install -D @confik/cli
 # or
-yarn add @confik/cli
+yarn add -D @confik/cli
 # or
-pnpm add @confik/cli
+pnpm add -D @confik/cli
 # or
-bun add @confik/cli
+bun add -D @confik/cli
 ```
 
 ## Usage
@@ -42,7 +42,8 @@ Create `.config/confik.json`:
   "exclude": ["**/*.local", "private/**"],
   "registry": true,
   "registryOverride": ["vite.config.ts"],
-  "gitignore": true
+  "gitignore": true,
+  "vscodeExclude": false
 }
 ```
 
@@ -50,6 +51,7 @@ Create `.config/confik.json`:
 - `registry`: enable the built-in registry skip list.
 - `registryOverride`: force-copy patterns that would otherwise be skipped by the registry.
 - `gitignore`: enable temporary `.git/info/exclude` handling (default `true`).
+- `vscodeExclude`: temporarily add staged files to `.vscode/settings.json` `files.exclude` (default `false`).
 
 ## Registry
 

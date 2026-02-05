@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -159,8 +160,11 @@ func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	if !defaults.Registry || !defaults.Gitignore {
 		t.Fatalf("expected default registry/gitignore true")
 	}
+	if defaults.VSCodeExclude {
+		t.Fatalf("expected vscodeExclude default false")
+	}
 
-	cfg := `{"exclude":["**/*.local"],"gitignore":false}`
+	cfg := `{"exclude":["**/*.local"],"gitignore":false,"vscodeExclude":true}`
 	if err := os.WriteFile(filepath.Join(configDir, configFilename), []byte(cfg), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -174,6 +178,9 @@ func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	}
 	if !loaded.Registry {
 		t.Fatalf("expected registry default true")
+	}
+	if !loaded.VSCodeExclude {
+		t.Fatalf("expected vscodeExclude true")
 	}
 }
 
@@ -337,6 +344,85 @@ func TestStagingCopiesAndCleans(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
 		t.Fatalf("expected manifest to be removed")
+	}
+}
+
+func TestVSCodeExcludeCleanupKeepsUserEdits(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "example.txt")
+
+	createdFiles := []string{}
+	createdDirs := []string{}
+	ctx, err := applyVSCodeExcludes(dir, []string{staged}, &createdFiles, &createdDirs)
+	if err != nil {
+		t.Fatalf("applyVSCodeExcludes error: %v", err)
+	}
+	if ctx == nil || !ctx.SettingsCreated {
+		t.Fatalf("expected settings to be created")
+	}
+
+	settingsPath := filepath.Join(dir, ".vscode", "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	settings := map[string]any{}
+	if err := json.Unmarshal(content, &settings); err != nil {
+		t.Fatalf("parse settings: %v", err)
+	}
+	settings["editor.tabSize"] = 2
+	updated, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal settings: %v", err)
+	}
+	updated = append(updated, '\n')
+	if err := os.WriteFile(settingsPath, updated, 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	if err := removeVSCodeExcludes(ctx); err != nil {
+		t.Fatalf("removeVSCodeExcludes: %v", err)
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("expected settings.json to remain")
+	}
+	finalSettings := map[string]any{}
+	if err := json.Unmarshal(after, &finalSettings); err != nil {
+		t.Fatalf("parse settings after: %v", err)
+	}
+	if _, ok := finalSettings["editor.tabSize"]; !ok {
+		t.Fatalf("expected user setting to remain")
+	}
+	if _, ok := finalSettings["files.exclude"]; ok {
+		t.Fatalf("expected files.exclude to be removed")
+	}
+}
+
+func TestVSCodeExcludeCleanupRemovesEmptySettings(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "example.txt")
+
+	createdFiles := []string{}
+	createdDirs := []string{}
+	ctx, err := applyVSCodeExcludes(dir, []string{staged}, &createdFiles, &createdDirs)
+	if err != nil {
+		t.Fatalf("applyVSCodeExcludes error: %v", err)
+	}
+	if ctx == nil || !ctx.SettingsCreated {
+		t.Fatalf("expected settings to be created")
+	}
+
+	if err := removeVSCodeExcludes(ctx); err != nil {
+		t.Fatalf("removeVSCodeExcludes: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".vscode", "settings.json")); err == nil {
+		t.Fatalf("expected settings.json to be removed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".vscode")); err == nil {
+		t.Fatalf("expected .vscode directory to be removed")
 	}
 }
 

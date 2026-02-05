@@ -1,0 +1,8 @@
+{
+  "$schema": "https://raw.githubusercontent.com/l-mbert/confik/refs/heads/main/confik.schema.json",
+  "exclude": ["**/*.local", "private/**"],
+  "registry": true,
+  "registryOverride": ["vite.config.ts"],
+  "gitignore": true,
+  "vscodeExclude": true
+}

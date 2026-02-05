@@ -33,6 +33,11 @@
       "type": "boolean",
       "description": "Temporarily add staged files to .git/info/exclude.",
       "default": true
+    },
+    "vscodeExclude": {
+      "type": "boolean",
+      "description": "Temporarily add staged files to .vscode/settings.json files.exclude.",
+      "default": false
     }
   }
 }

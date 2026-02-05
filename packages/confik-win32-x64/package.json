@@ -1,6 +1,6 @@
 {
   "name": "@confik/win32-x64",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "confik binary for win32 x64",
   "os": [
     "win32"

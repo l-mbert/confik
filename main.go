@@ -50,6 +50,7 @@ type ConfigFile struct {
 	Registry         *bool    `json:"registry"`
 	RegistryOverride []string `json:"registryOverride"`
 	Gitignore        *bool    `json:"gitignore"`
+	VSCodeExclude    *bool    `json:"vscodeExclude"`
 }
 
 type ConfikConfig struct {
@@ -57,6 +58,7 @@ type ConfikConfig struct {
 	Registry         bool
 	RegistryOverride []string
 	Gitignore        bool
+	VSCodeExclude    bool
 	Path             string
 }
 
@@ -68,11 +70,12 @@ type GitContext struct {
 }
 
 type Manifest struct {
-	RunID        string      `json:"runId"`
-	CreatedFiles []string    `json:"createdFiles"`
-	CreatedDirs  []string    `json:"createdDirs"`
-	Gitignore    *GitContext `json:"gitignore"`
-	CreatedAt    string      `json:"createdAt"`
+	RunID        string         `json:"runId"`
+	CreatedFiles []string       `json:"createdFiles"`
+	CreatedDirs  []string       `json:"createdDirs"`
+	Gitignore    *GitContext    `json:"gitignore"`
+	VSCode       *VSCodeContext `json:"vscode,omitempty"`
+	CreatedAt    string         `json:"createdAt"`
 }
 
 type RegistryPayload struct {
@@ -219,6 +222,17 @@ func run() error {
 		createdFiles = append(createdFiles, dest)
 	}
 
+	stagedFiles := append([]string(nil), createdFiles...)
+	var vscodeContext *VSCodeContext
+	if !parsed.Flags.DryRun && config.VSCodeExclude && len(stagedFiles) > 0 {
+		ctx, err := applyVSCodeExcludes(cwd, stagedFiles, &createdFiles, &createdDirs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "confik: failed to update .vscode/settings.json (%v)\n", err)
+		} else {
+			vscodeContext = ctx
+		}
+	}
+
 	var gitContext *GitContext
 	if !parsed.Flags.DryRun && useGitignore && len(createdFiles) > 0 {
 		gitRoot := findGitRoot(cwd)
@@ -260,6 +274,7 @@ func run() error {
 		CreatedFiles: toRelativeList(cwd, createdFiles),
 		CreatedDirs:  toRelativeList(cwd, createdDirs),
 		Gitignore:    gitContext,
+		VSCode:       vscodeContext,
 		CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 	}
 
@@ -284,7 +299,13 @@ func run() error {
 	cleanupOnce := sync.Once{}
 	cleanup := func() {
 		cleanupOnce.Do(func() {
+			if vscodeContext != nil {
+				_ = removeVSCodeExcludes(vscodeContext)
+			}
 			for _, filePath := range createdFiles {
+				if vscodeContext != nil && vscodeContext.SettingsCreated && filePath == vscodeContext.SettingsPath {
+					continue
+				}
 				_ = os.Remove(filePath)
 			}
 
@@ -377,7 +398,8 @@ Config:
     "exclude": ["**/*.local", "private/**"],
     "registry": true,
     "registryOverride": ["vite.config.ts"],
-    "gitignore": true
+    "gitignore": true,
+    "vscodeExclude": false
   }
 `, configFilename)
 
@@ -391,6 +413,7 @@ func loadConfig(configDir string) ConfikConfig {
 		Registry:         true,
 		RegistryOverride: []string{},
 		Gitignore:        true,
+		VSCodeExclude:    false,
 		Path:             configPath,
 	}
 
@@ -421,6 +444,9 @@ func loadConfig(configDir string) ConfikConfig {
 	}
 	if parsed.Gitignore != nil {
 		config.Gitignore = *parsed.Gitignore
+	}
+	if parsed.VSCodeExclude != nil {
+		config.VSCodeExclude = *parsed.VSCodeExclude
 	}
 
 	return config
@@ -718,7 +744,19 @@ func cleanLeftovers(cwd string, force bool, quiet bool) error {
 			manifest = nil
 		}
 		if manifest != nil {
+			if manifest.VSCode != nil {
+				_ = removeVSCodeExcludes(manifest.VSCode)
+			}
+			settingsRel := ""
+			if manifest.VSCode != nil && manifest.VSCode.SettingsCreated {
+				if rel, err := filepath.Rel(cwd, manifest.VSCode.SettingsPath); err == nil {
+					settingsRel = filepath.ToSlash(rel)
+				}
+			}
 			for _, rel := range manifest.CreatedFiles {
+				if settingsRel != "" && rel == settingsRel {
+					continue
+				}
 				_ = os.Remove(filepath.Join(cwd, rel))
 			}
 			dirs := make([]string, 0, len(manifest.CreatedDirs))
@@ -731,6 +769,9 @@ func cleanLeftovers(cwd string, force bool, quiet bool) error {
 			}
 			if manifest.Gitignore != nil && manifest.Gitignore.ExcludePath != "" && manifest.Gitignore.RunID != "" {
 				_ = removeGitIgnoreBlock(manifest.Gitignore.ExcludePath, manifest.Gitignore.RunID)
+			}
+			if manifest.VSCode != nil {
+				_ = removeVSCodeExcludes(manifest.VSCode)
 			}
 			_ = os.Remove(manifestPath)
 			cleaned = true
