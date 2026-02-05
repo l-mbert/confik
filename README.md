@@ -10,7 +10,7 @@ npm install -g @confik/cli
 pnpm add -g @confik/cli
 ```
 
-During install, the correct platform package is selected via optionalDependencies. The `bin/confik` shim forwards to the native binary inside that package.
+During install, the correct platform package is selected via optionalDependencies. npm generates a `confik` shim that runs `bin/confik.js`, which forwards to the native binary inside that package.
 
 ## Usage
 

@@ -1,11 +1,18 @@
 {
   "name": "@confik/cli",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Stage .config files into the project root while running a command",
-  "main": "bin/confik",
+  "main": "bin/confik.js",
   "bin": {
-    "confik": "bin/confik"
+    "confik": "bin/confik.js"
   },
+  "files": [
+    "bin/confik.js",
+    "confik.schema.json",
+    "registry.json",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "build": "go build -o dist/confik",
     "build:binaries": "bash scripts/build-binaries.sh",
@@ -31,9 +38,9 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.2",
   "optionalDependencies": {
-    "@confik/darwin-arm64": "1.0.3",
-    "@confik/darwin-x64": "1.0.3",
-    "@confik/linux-x64": "1.0.3",
-    "@confik/win32-x64": "1.0.3"
+    "@confik/darwin-arm64": "1.0.4",
+    "@confik/darwin-x64": "1.0.4",
+    "@confik/linux-x64": "1.0.4",
+    "@confik/win32-x64": "1.0.4"
   }
 }
