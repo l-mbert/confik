@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/confik.schema.json",
+  "title": "Confik Config",
+  "description": "Schema for .config/confik.json",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "exclude": {
+      "type": "array",
+      "description": "Glob patterns (relative to .config/) to skip staging.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": []
+    },
+    "registry": {
+      "type": "boolean",
+      "description": "Enable the built-in registry skip list.",
+      "default": true
+    },
+    "registryOverride": {
+      "type": "array",
+      "description": "Glob patterns to force-copy even if in the registry.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": []
+    },
+    "gitignore": {
+      "type": "boolean",
+      "description": "Temporarily add staged files to .git/info/exclude.",
+      "default": true
+    }
+  }
+}

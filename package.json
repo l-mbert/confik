@@ -1,0 +1,32 @@
+{
+  "name": "confik",
+  "version": "1.0.0",
+  "description": "Stage .config files into the project root while running a command",
+  "main": "bin/confik",
+  "bin": {
+    "confik": "bin/confik"
+  },
+  "scripts": {
+    "build": "go build -o bin/confik",
+    "build:binaries": "bash scripts/build-binaries.sh",
+    "clean": "rm -rf dist bin/confik bin/confik.exe",
+    "check-versions": "node scripts/sync-versions.js --check",
+    "sync-versions": "node scripts/sync-versions.js",
+    "postinstall": "node scripts/install.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cli",
+    "config",
+    "xdg"
+  ],
+  "author": "Lambert",
+  "license": "MIT",
+  "packageManager": "pnpm@10.28.2",
+  "optionalDependencies": {
+    "@confik/darwin-arm64": "1.0.0",
+    "@confik/darwin-x64": "1.0.0",
+    "@confik/linux-x64": "1.0.0",
+    "@confik/win32-x64": "1.0.0"
+  }
+}

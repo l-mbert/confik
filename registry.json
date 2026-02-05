@@ -1,0 +1,8 @@
+{
+  "patterns": [
+    "confik.json",
+    "confik.config.json",
+    ".confik-manifest.json"
+  ],
+  "note": "Registry of config filenames that do not need to be staged into the project root. Extend as needed."
+}

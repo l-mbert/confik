@@ -1,0 +1,17 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  packages/confik-darwin-arm64: {}
+
+  packages/confik-darwin-x64: {}
+
+  packages/confik-linux-x64: {}
+
+  packages/confik-win32-x64: {}

@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+bin/confik
+bin/confik.exe
+packages/**/confik
+packages/**/confik.exe
+
+# Confik runtime artifacts
+.confik-manifest.json
+.config/
+!example/.config/
+
+# Logs and OS files
+*.log
+.DS_Store
+
+# Editor/IDE
+.vscode/
+.idea/
+.confik.lock

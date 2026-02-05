@@ -1,0 +1,18 @@
+{
+  "name": "@confik/darwin-x64",
+  "version": "1.0.0",
+  "description": "confik binary for darwin x64",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "confik"
+  ],
+  "bin": {
+    "confik": "confik"
+  },
+  "license": "MIT"
+}

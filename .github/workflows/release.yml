@@ -1,0 +1,106 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check versions
+        run: node scripts/sync-versions.js --check
+
+      - name: Run tests
+        run: go test ./...
+
+  publish-platform:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            pkgDir: confik-darwin-arm64
+            bin: confik
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            pkgDir: confik-darwin-x64
+            bin: confik
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            pkgDir: confik-linux-x64
+            bin: confik
+          - os: windows-latest
+            goos: windows
+            goarch: amd64
+            pkgDir: confik-win32-x64
+            bin: confik.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: go build -o packages/${{ matrix.pkgDir }}/${{ matrix.bin }}
+
+      - name: Ensure executable
+        if: matrix.os != 'windows-latest'
+        run: chmod +x packages/${{ matrix.pkgDir }}/${{ matrix.bin }}
+
+      - name: Publish platform package
+        working-directory: packages/${{ matrix.pkgDir }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  publish-main:
+    needs: publish-platform
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
