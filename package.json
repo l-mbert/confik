@@ -1,18 +1,17 @@
 {
   "name": "@confik/cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Stage .config files into the project root while running a command",
   "main": "bin/confik",
   "bin": {
     "confik": "bin/confik"
   },
   "scripts": {
-    "build": "go build -o bin/confik",
+    "build": "go build -o dist/confik",
     "build:binaries": "bash scripts/build-binaries.sh",
-    "clean": "rm -rf dist bin/confik bin/confik.exe",
+    "clean": "rm -rf dist bin/confik.exe",
     "check-versions": "node scripts/sync-versions.js --check",
     "sync-versions": "node scripts/sync-versions.js",
-    "postinstall": "node scripts/install.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
@@ -23,7 +22,7 @@
   "author": "Lambert",
   "repository": {
     "type": "git",
-    "url": "https://github.com/l-mbert/confik"
+    "url": "git+https://github.com/l-mbert/confik.git"
   },
   "homepage": "https://github.com/l-mbert/confik#readme",
   "bugs": {
@@ -32,9 +31,9 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.2",
   "optionalDependencies": {
-    "@confik/darwin-arm64": "1.0.2",
-    "@confik/darwin-x64": "1.0.2",
-    "@confik/linux-x64": "1.0.2",
-    "@confik/win32-x64": "1.0.2"
+    "@confik/darwin-arm64": "1.0.3",
+    "@confik/darwin-x64": "1.0.3",
+    "@confik/linux-x64": "1.0.3",
+    "@confik/win32-x64": "1.0.3"
   }
 }

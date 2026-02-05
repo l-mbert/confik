@@ -1,7 +1,8 @@
+#!/usr/bin/env node
 "use strict";
 
-const fs = require("fs");
 const path = require("path");
+const { spawnSync } = require("child_process");
 
 const platform = process.platform;
 const arch = process.arch;
@@ -26,24 +27,16 @@ try {
   pkgDir = path.dirname(require.resolve(`${target.pkg}/package.json`));
 } catch (err) {
   console.error(`confik: missing optional dependency ${target.pkg}.`);
-  console.error("confik: try reinstalling or check npm/yarn optionalDependencies settings.");
+  console.error("confik: try reinstalling (npm install) or check optionalDependencies settings.");
   process.exit(1);
 }
 
-const source = path.join(pkgDir, target.bin);
-const binDir = path.join(__dirname, "..", "bin");
-const dest = path.join(binDir, platform === "win32" ? "confik.exe" : "confik");
+const binPath = path.join(pkgDir, target.bin);
+const result = spawnSync(binPath, process.argv.slice(2), { stdio: "inherit" });
 
-fs.mkdirSync(binDir, { recursive: true });
-
-try {
-  fs.copyFileSync(source, dest);
-  fs.chmodSync(dest, 0o755);
-  if (platform === "win32") {
-    const altDest = path.join(binDir, "confik");
-    fs.copyFileSync(source, altDest);
-  }
-} catch (err) {
-  console.error(`confik: failed to install binary: ${err.message}`);
+if (result.error) {
+  console.error(`confik: failed to run native binary (${result.error.message})`);
   process.exit(1);
 }
+
+process.exit(result.status ?? 1);

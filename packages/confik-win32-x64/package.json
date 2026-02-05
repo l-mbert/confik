@@ -1,6 +1,6 @@
 {
   "name": "@confik/win32-x64",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "confik binary for win32 x64",
   "os": [
     "win32"
@@ -16,7 +16,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/l-mbert/confik"
+    "url": "git+https://github.com/l-mbert/confik.git"
   },
   "license": "MIT"
 }

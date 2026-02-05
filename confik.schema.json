@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.com/confik.schema.json",
+  "$id": "https://github.com/l-mbert/confik/confik.schema.json",
   "title": "Confik Config",
   "description": "Schema for .config/confik.json",
   "type": "object",

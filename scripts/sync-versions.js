@@ -7,6 +7,7 @@ const rootDir = path.join(__dirname, "..");
 const rootPkgPath = path.join(rootDir, "package.json");
 const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf8"));
 const version = rootPkg.version;
+const repository = rootPkg.repository;
 
 const platformPackages = [
   { dir: "confik-darwin-arm64", name: "@confik/darwin-arm64" },
@@ -24,7 +25,10 @@ function writeJson(filePath, payload) {
 }
 
 function ensureOptionalDeps() {
-  if (!rootPkg.optionalDependencies || typeof rootPkg.optionalDependencies !== "object") {
+  if (
+    !rootPkg.optionalDependencies ||
+    typeof rootPkg.optionalDependencies !== "object"
+  ) {
     rootPkg.optionalDependencies = {};
     rootChanged = true;
   }
@@ -33,7 +37,9 @@ function ensureOptionalDeps() {
     const current = rootPkg.optionalDependencies[pkg.name];
     if (current !== version) {
       if (checkOnly) {
-        problems.push(`optionalDependencies.${pkg.name} = ${current || "<missing>"}`);
+        problems.push(
+          `optionalDependencies.${pkg.name} = ${current || "<missing>"}`
+        );
       } else {
         rootPkg.optionalDependencies[pkg.name] = version;
         rootChanged = true;
@@ -50,7 +56,11 @@ function syncPlatformPackages() {
 
     if (payload.name !== pkg.name) {
       if (checkOnly) {
-        problems.push(`${path.relative(rootDir, pkgPath)} name = ${payload.name || "<missing>"}`);
+        problems.push(
+          `${path.relative(rootDir, pkgPath)} name = ${
+            payload.name || "<missing>"
+          }`
+        );
       } else {
         payload.name = pkg.name;
       }
@@ -58,9 +68,29 @@ function syncPlatformPackages() {
 
     if (payload.version !== version) {
       if (checkOnly) {
-        problems.push(`${path.relative(rootDir, pkgPath)} version = ${payload.version || "<missing>"}`);
+        problems.push(
+          `${path.relative(rootDir, pkgPath)} version = ${
+            payload.version || "<missing>"
+          }`
+        );
       } else {
         payload.version = version;
+      }
+    }
+
+    if (repository) {
+      const repoString = JSON.stringify(repository);
+      const payloadRepoString = JSON.stringify(payload.repository || {});
+      if (payloadRepoString !== repoString) {
+        if (checkOnly) {
+          problems.push(
+            `${path.relative(rootDir, pkgPath)} repository = ${
+              payload.repository ? "different" : "<missing>"
+            }`
+          );
+        } else {
+          payload.repository = repository;
+        }
       }
     }
 

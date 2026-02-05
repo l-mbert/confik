@@ -2,7 +2,7 @@
 node_modules/
 
 # Build outputs
-bin/confik
+dist/
 bin/confik.exe
 packages/**/confik
 packages/**/confik.exe

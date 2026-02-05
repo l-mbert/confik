@@ -9,6 +9,5 @@
 *.yaml text eol=lf
 
 *.exe binary
-bin/confik binary
 packages/**/confik binary
 packages/**/confik.exe binary
