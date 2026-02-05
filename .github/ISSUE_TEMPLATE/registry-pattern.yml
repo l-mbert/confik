@@ -1,0 +1,45 @@
+name: Add a registry pattern
+description: Suggest a new registry pattern for tools that already support .config
+labels: ["registry"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. The registry is only for **widely used tools** that already support reading configs from `.config/`.
+        Current policy: **at least 100 GitHub stars** and clear `.config` support.
+  - type: input
+    id: tool_name
+    attributes:
+      label: Tool name
+      placeholder: "Example: Vite"
+    validations:
+      required: true
+  - type: input
+    id: repo_url
+    attributes:
+      label: GitHub repo URL
+      placeholder: https://github.com/...
+    validations:
+      required: true
+  - type: input
+    id: config_file
+    attributes:
+      label: Config file(s) to add
+      placeholder: "vite.config.*"
+    validations:
+      required: true
+  - type: textarea
+    id: config_support
+    attributes:
+      label: Evidence of .config support
+      description: Link to docs or code showing the tool reads config from `.config/`.
+      placeholder: https://...
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      placeholder: Anything else that helps evaluate this request.
+    validations:
+      required: false
