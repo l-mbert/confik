@@ -14,5 +14,9 @@
   "bin": {
     "confik": "confik.exe"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/l-mbert/confik"
+  },
   "license": "MIT"
 }

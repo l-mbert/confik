@@ -21,6 +21,14 @@
     "xdg"
   ],
   "author": "Lambert",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/l-mbert/confik"
+  },
+  "homepage": "https://github.com/l-mbert/confik#readme",
+  "bugs": {
+    "url": "https://github.com/l-mbert/confik/issues"
+  },
   "license": "MIT",
   "packageManager": "pnpm@10.28.2",
   "optionalDependencies": {
