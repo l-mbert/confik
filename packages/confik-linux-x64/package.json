@@ -1,6 +1,6 @@
 {
   "name": "@confik/linux-x64",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "confik binary for linux x64",
   "os": [
     "linux"

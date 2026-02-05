@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -283,4 +286,118 @@ func TestLoadRegistryPatterns(t *testing.T) {
 	if !found {
 		t.Fatalf("expected registry to include confik.json")
 	}
+}
+
+func TestNoConfigWarnsAndRunsCommand(t *testing.T) {
+	dir := t.TempDir()
+	code, _, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !strings.Contains(stderr, "no .config directory found") {
+		t.Fatalf("expected warning about missing .config, got: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".config")); err == nil {
+		t.Fatalf("did not expect .config to be created")
+	}
+}
+
+func TestNoConfigPropagatesExitCode(t *testing.T) {
+	dir := t.TempDir()
+	code, _, _ := runConfik(t, dir, testCommandArgs(7)...)
+	if code != 7 {
+		t.Fatalf("expected exit code 7, got %d", code)
+	}
+}
+
+func TestStagingCopiesAndCleans(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	sourcePath := filepath.Join(configDir, "example.txt")
+	if err := os.WriteFile(sourcePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	code, _, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "example.txt")); err == nil {
+		t.Fatalf("expected staged file to be removed")
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, "example.txt")); err != nil {
+		t.Fatalf("expected source file to remain in .config")
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
+		t.Fatalf("expected manifest to be removed")
+	}
+}
+
+func runConfik(t *testing.T, dir string, args ...string) (int, string, string) {
+	t.Helper()
+
+	cmdArgs := append([]string{"-test.run=TestHelperProcess", "--"}, args...)
+	cmd := exec.Command(os.Args[0], cmdArgs...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CONFIK_HELPER=1", "CONFIK_CMD=1")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return 0, stdout.String(), stderr.String()
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ProcessState.ExitCode(), stdout.String(), stderr.String()
+	}
+	t.Fatalf("unexpected error running confik: %v", err)
+	return 1, stdout.String(), stderr.String()
+}
+
+func testCommandArgs(exitCode int) []string {
+	return []string{os.Args[0], "-test.run=TestHelperCommand", "--", strconv.Itoa(exitCode)}
+}
+
+func TestHelperProcess(t *testing.T) {
+	if os.Getenv("CONFIK_HELPER") != "1" {
+		return
+	}
+	args := []string{"confik"}
+	for i, arg := range os.Args {
+		if arg == "--" && i+1 < len(os.Args) {
+			args = append(args, os.Args[i+1:]...)
+			break
+		}
+	}
+	os.Args = args
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func TestHelperCommand(t *testing.T) {
+	if os.Getenv("CONFIK_CMD") != "1" {
+		return
+	}
+	code := 0
+	for i, arg := range os.Args {
+		if arg == "--" && i+1 < len(os.Args) {
+			if parsed, err := strconv.Atoi(os.Args[i+1]); err == nil {
+				code = parsed
+			}
+			break
+		}
+	}
+	os.Exit(code)
 }

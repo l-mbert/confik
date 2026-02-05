@@ -103,8 +103,16 @@ func run() error {
 	}
 
 	configDir := filepath.Join(cwd, ".config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		return err
+	if !isDirectory(configDir) {
+		fmt.Fprintln(os.Stderr, "confik: no .config directory found, continuing without staging")
+		if parsed.Flags.Clean {
+			return nil
+		}
+		if parsed.Command == "" {
+			printHelp()
+			return errors.New("missing command")
+		}
+		return runCommandAndExit(parsed.Command, parsed.CommandArgs, func() {})
 	}
 
 	lockPath := filepath.Join(configDir, lockFilename)
@@ -300,26 +308,7 @@ func run() error {
 		os.Exit(1)
 	}()
 
-	cmd := exec.Command(parsed.Command, parsed.CommandArgs...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	err = cmd.Run()
-	cleanup()
-
-	if err == nil {
-		return nil
-	}
-
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-			os.Exit(status.ExitStatus())
-		}
-		os.Exit(1)
-	}
-
-	return fmt.Errorf("failed to run %s (%v)", parsed.Command, err)
+	return runCommandAndExit(parsed.Command, parsed.CommandArgs, cleanup)
 }
 
 func parseArgs(args []string) (ParsedArgs, error) {
@@ -781,6 +770,39 @@ func printSummary(dryRun bool, createdFiles, skippedExisting, skippedExcluded, s
 	if len(lines) > 0 {
 		fmt.Fprintln(os.Stdout, strings.Join(lines, "\n"))
 	}
+}
+
+func runCommand(command string, args []string) (int, error) {
+	cmd := exec.Command(command, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return 0, nil
+	}
+
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return status.ExitStatus(), nil
+		}
+		return 1, nil
+	}
+
+	return 1, fmt.Errorf("failed to run %s (%v)", command, err)
+}
+
+func runCommandAndExit(command string, args []string, cleanup func()) error {
+	code, err := runCommand(command, args)
+	cleanup()
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		os.Exit(code)
+	}
+	return nil
 }
 
 func removeDirIfEmpty(dirPath string) {
