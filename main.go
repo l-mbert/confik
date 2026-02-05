@@ -234,7 +234,11 @@ func run() error {
 					if strings.HasPrefix(rel, "..") {
 						continue
 					}
-					relPaths = append(relPaths, filepath.ToSlash(rel))
+					posixRel := filepath.ToSlash(rel)
+					if !strings.HasPrefix(posixRel, "/") {
+						posixRel = "/" + posixRel
+					}
+					relPaths = append(relPaths, posixRel)
 				}
 				if len(relPaths) > 0 {
 					excludePath, err := appendGitIgnoreBlock(gitDir, runID, relPaths)
