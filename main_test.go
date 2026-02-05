@@ -426,6 +426,46 @@ func TestVSCodeExcludeCleanupRemovesEmptySettings(t *testing.T) {
 	}
 }
 
+func TestVSCodeExcludeCleanupKeepsJSONCCommentOnly(t *testing.T) {
+	dir := t.TempDir()
+	staged := filepath.Join(dir, "example.txt")
+
+	createdFiles := []string{}
+	createdDirs := []string{}
+	ctx, err := applyVSCodeExcludes(dir, []string{staged}, &createdFiles, &createdDirs)
+	if err != nil {
+		t.Fatalf("applyVSCodeExcludes error: %v", err)
+	}
+	if ctx == nil || !ctx.SettingsCreated {
+		t.Fatalf("expected settings to be created")
+	}
+
+	settingsPath := filepath.Join(dir, ".vscode", "settings.json")
+	content, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	withComment := append([]byte("// user note\n"), content...)
+	if err := os.WriteFile(settingsPath, withComment, 0o644); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+
+	if err := removeVSCodeExcludes(ctx); err != nil {
+		t.Fatalf("removeVSCodeExcludes: %v", err)
+	}
+
+	after, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("expected settings.json to remain")
+	}
+	if !strings.Contains(string(after), "// user note") {
+		t.Fatalf("expected user comment to remain")
+	}
+	if strings.Contains(string(after), "files.exclude") {
+		t.Fatalf("expected files.exclude to be removed")
+	}
+}
+
 func runConfik(t *testing.T, dir string, args ...string) (int, string, string) {
 	t.Helper()
 

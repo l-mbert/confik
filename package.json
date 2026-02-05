@@ -1,6 +1,6 @@
 {
   "name": "@confik/cli",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Stage .config files into the project root while running a command",
   "main": "bin/confik.js",
   "bin": {
@@ -19,7 +19,7 @@
     "clean": "rm -rf dist bin/confik.exe",
     "check-versions": "node scripts/sync-versions.js --check",
     "sync-versions": "node scripts/sync-versions.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "go test ./..."
   },
   "keywords": [
     "cli",
@@ -38,9 +38,9 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.2",
   "optionalDependencies": {
-    "@confik/darwin-arm64": "1.0.8",
-    "@confik/darwin-x64": "1.0.8",
-    "@confik/linux-x64": "1.0.8",
-    "@confik/win32-x64": "1.0.8"
+    "@confik/darwin-arm64": "1.0.9",
+    "@confik/darwin-x64": "1.0.9",
+    "@confik/linux-x64": "1.0.9",
+    "@confik/win32-x64": "1.0.9"
   }
 }

@@ -2,7 +2,18 @@
   "patterns": [
     "confik.json",
     "confik.config.json",
-    ".confik-manifest.json"
+    ".confik-manifest.json",
+    "commitlintrc*",
+    "lint-stagedrc*",
+    "lintstagedrc*",
+    "cspell*.json",
+    "cspell*.jsonc",
+    "cspell*.yaml",
+    "cspell*.yml",
+    ".cspell*.json",
+    ".cspell*.jsonc",
+    ".cspell*.yaml",
+    ".cspell*.yml"
   ],
-  "note": "Registry of config filenames that do not need to be staged into the project root. Extend as needed."
+  "note": "Registry of glob patterns that do not need to be staged into the project root. Extend as needed."
 }

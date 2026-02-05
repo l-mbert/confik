@@ -51,7 +51,7 @@ Create `.config/confik.json`:
 - `registry`: enable the built-in registry skip list.
 - `registryOverride`: force-copy patterns that would otherwise be skipped by the registry.
 - `gitignore`: enable temporary `.git/info/exclude` handling (default `true`).
-- `vscodeExclude`: temporarily add staged files to `.vscode/settings.json` `files.exclude` (default `false`).
+- `vscodeExclude`: temporarily add staged files to `.vscode/settings.json` `files.exclude` (default `false`). JSONC is supported and comments are preserved.
 
 ## Registry
 
