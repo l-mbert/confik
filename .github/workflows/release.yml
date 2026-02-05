@@ -39,7 +39,7 @@ jobs:
             goarch: arm64
             pkgDir: confik-darwin-arm64
             bin: confik
-          - os: macos-13
+          - os: macos-14
             goos: darwin
             goarch: amd64
             pkgDir: confik-darwin-x64

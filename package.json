@@ -1,6 +1,6 @@
 {
   "name": "@confik/cli",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Stage .config files into the project root while running a command",
   "main": "bin/confik",
   "bin": {
@@ -24,9 +24,9 @@
   "license": "MIT",
   "packageManager": "pnpm@10.28.2",
   "optionalDependencies": {
-    "@confik/darwin-arm64": "1.0.1",
-    "@confik/darwin-x64": "1.0.1",
-    "@confik/linux-x64": "1.0.1",
-    "@confik/win32-x64": "1.0.1"
+    "@confik/darwin-arm64": "1.0.2",
+    "@confik/darwin-x64": "1.0.2",
+    "@confik/linux-x64": "1.0.2",
+    "@confik/win32-x64": "1.0.2"
   }
 }
