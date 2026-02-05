@@ -5,12 +5,14 @@
 ## Install
 
 ```bash
-npm install -g @confik/cli
+npm install @confik/cli
 # or
-pnpm add -g @confik/cli
+yarn add @confik/cli
+# or
+pnpm add @confik/cli
+# or
+bun add @confik/cli
 ```
-
-During install, the correct platform package is selected via optionalDependencies. npm generates a `confik` shim that runs `bin/confik.js`, which forwards to the native binary inside that package.
 
 ## Usage
 
@@ -20,20 +22,6 @@ confik -- vite build
 confik --dry-run npm run test
 confik --clean
 ```
-
-## Build (local dev)
-
-```bash
-go build -o dist/confik
-```
-
-## Build platform packages (for publishing)
-
-```bash
-pnpm run build:binaries
-```
-
-This produces native binaries in `packages/` for `darwin/arm64`, `darwin/x64`, `linux/x64`, and `win32/x64`.
 
 ## Behavior
 
@@ -50,15 +38,13 @@ Create `.config/confik.json`:
 
 ```json
 {
-  "$schema": "../confik.schema.json",
+  "$schema": "https://raw.githubusercontent.com/l-mbert/confik/refs/heads/main/confik.schema.json",
   "exclude": ["**/*.local", "private/**"],
   "registry": true,
   "registryOverride": ["vite.config.ts"],
   "gitignore": true
 }
 ```
-
-JSON Schema is available at `confik.schema.json` in the repo. Adjust the `$schema` path to match your project structure.
 
 - `exclude`: glob patterns (relative to `.config/`) to skip.
 - `registry`: enable the built-in registry skip list.
@@ -78,3 +64,17 @@ confik --clean
 ```
 
 This removes any leftover staged files from `.config/.confik-manifest.json` and clears any `confik` blocks in `.git/info/exclude`.
+
+## Build (local dev)
+
+```bash
+go build -o dist/confik
+```
+
+## Build platform packages (for publishing)
+
+```bash
+pnpm run build:binaries
+```
+
+This produces native binaries in `packages/` for `darwin/arm64`, `darwin/x64`, `linux/x64`, and `win32/x64`.
