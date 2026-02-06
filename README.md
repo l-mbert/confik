@@ -17,6 +17,7 @@ bun add -D @confik/cli
 ## Usage
 
 ```bash
+confik
 confik yarn dev
 confik -- vite build
 confik --dry-run npm run test
@@ -27,6 +28,7 @@ confik --clean
 
 - Looks for `.config/` in the current working directory.
 - Copies eligible files into the project root before running your command.
+- If no command is provided, enters standalone mode and keeps files staged until interrupted (`Ctrl+C`).
 - Never overwrites existing root files (they are skipped).
 - Removes staged files on exit (including `SIGINT`, `SIGTERM`, `SIGHUP`).
 - Adds a temporary block to `.git/info/exclude` so staged files are not accidentally committed.
