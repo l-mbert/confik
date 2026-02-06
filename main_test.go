@@ -263,8 +263,8 @@ func TestStandaloneModeStagesAndCleansOnInterrupt(t *testing.T) {
 	}
 
 	code, _, stderr := runConfikUntilStagedThenInterrupt(t, dir, filepath.Join(dir, "example.txt"))
-	if code != 0 {
-		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit code on interrupt, got %d (stderr: %s)", code, stderr)
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, "example.txt")); err == nil {

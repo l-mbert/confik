@@ -296,12 +296,20 @@ func run() error {
 	if parsed.Command == "" {
 		_, _ = fmt.Fprintln(os.Stdout, "confik: standalone mode active. Press Ctrl+C to clean up and exit.")
 		sig := <-sigCh
+		// Restore default signal handling before cleanup so a second Ctrl+C force-exits.
+		signal.Stop(sigCh)
 		fmt.Fprintf(os.Stderr, "confik: received %s, cleaning up...\n", sig.String())
-		return cleanup()
+		if err := cleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", err)
+			return combineErrors(fmt.Errorf("interrupted"), err)
+		}
+		return fmt.Errorf("interrupted")
 	}
 
 	go func() {
 		sig := <-sigCh
+		// Restore default signal handling before cleanup so a second Ctrl+C force-exits.
+		signal.Stop(sigCh)
 		fmt.Fprintf(os.Stderr, "confik: received %s, cleaning up...\n", sig.String())
 		if err := cleanup(); err != nil {
 			fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", err)
