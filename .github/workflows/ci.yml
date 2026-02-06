@@ -5,7 +5,11 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,7 +28,13 @@ jobs:
         run: node scripts/sync-versions.js --check
 
       - name: Run tests
-        run: go test ./...
+        run: go test -race -coverprofile=coverage.out ./...
+
+      - name: Check coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go tool cover -func=coverage.out
+          go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//' | xargs -I{} sh -c 'echo "Total coverage: {}%"'
 
       - name: Run vet
         run: go vet ./...

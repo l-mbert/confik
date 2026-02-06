@@ -30,7 +30,7 @@ jobs:
         run: node scripts/sync-versions.js --check
 
       - name: Run tests
-        run: go test ./...
+        run: go test -race ./...
 
   publish-platform:
     needs: test
