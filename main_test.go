@@ -11,27 +11,109 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseArgs(t *testing.T) {
-	parsed, err := parseArgs([]string{"--dry-run", "--no-gitignore", "echo", "hi"})
-	if err != nil {
-		t.Fatalf("parseArgs error: %v", err)
-	}
-	if !parsed.Flags.DryRun || parsed.Flags.Gitignore {
-		t.Fatalf("expected dryRun true and gitignore false")
-	}
-	if parsed.Command != "echo" {
-		t.Fatalf("expected command echo, got %q", parsed.Command)
-	}
-	if len(parsed.CommandArgs) != 1 || parsed.CommandArgs[0] != "hi" {
-		t.Fatalf("unexpected command args: %#v", parsed.CommandArgs)
-	}
+	t.Run("flags-and-command", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"--dry-run", "--no-gitignore", "echo", "hi"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if !parsed.Flags.DryRun || parsed.Flags.Gitignore {
+			t.Fatalf("expected dryRun true and gitignore false")
+		}
+		if parsed.Command != "echo" {
+			t.Fatalf("expected command echo, got %q", parsed.Command)
+		}
+		if len(parsed.CommandArgs) != 1 || parsed.CommandArgs[0] != "hi" {
+			t.Fatalf("unexpected command args: %#v", parsed.CommandArgs)
+		}
+	})
 
-	_, err = parseArgs([]string{"--unknown"})
-	if err == nil {
-		t.Fatalf("expected error for unknown option")
-	}
+	t.Run("unknown-option", func(t *testing.T) {
+		_, err := parseArgs([]string{"--unknown"})
+		if err == nil {
+			t.Fatalf("expected error for unknown option")
+		}
+	})
+
+	t.Run("double-dash-separator", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"--dry-run", "--", "npm", "run", "build"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if !parsed.Flags.DryRun {
+			t.Fatalf("expected dryRun true")
+		}
+		if parsed.Command != "npm" {
+			t.Fatalf("expected command npm, got %q", parsed.Command)
+		}
+		if len(parsed.CommandArgs) != 2 || parsed.CommandArgs[0] != "run" || parsed.CommandArgs[1] != "build" {
+			t.Fatalf("unexpected command args: %#v", parsed.CommandArgs)
+		}
+	})
+
+	t.Run("help-flag", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"-h"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if !parsed.Flags.Help {
+			t.Fatalf("expected help true")
+		}
+
+		parsed, err = parseArgs([]string{"--help"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if !parsed.Flags.Help {
+			t.Fatalf("expected help true")
+		}
+	})
+
+	t.Run("clean-flag", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"--clean"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if !parsed.Flags.Clean {
+			t.Fatalf("expected clean true")
+		}
+	})
+
+	t.Run("no-registry-flag", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"--no-registry", "echo"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if parsed.Flags.Registry {
+			t.Fatalf("expected registry false")
+		}
+	})
+
+	t.Run("no-args", func(t *testing.T) {
+		parsed, err := parseArgs([]string{})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if parsed.Command != "" {
+			t.Fatalf("expected empty command, got %q", parsed.Command)
+		}
+		if !parsed.Flags.Gitignore || !parsed.Flags.Registry {
+			t.Fatalf("expected default flags")
+		}
+	})
+
+	t.Run("double-dash-only", func(t *testing.T) {
+		parsed, err := parseArgs([]string{"--"})
+		if err != nil {
+			t.Fatalf("parseArgs error: %v", err)
+		}
+		if parsed.Command != "" {
+			t.Fatalf("expected empty command after bare --, got %q", parsed.Command)
+		}
+	})
 }
 
 func TestMatchesPatternList(t *testing.T) {
@@ -116,6 +198,20 @@ func TestNoConfigWarnsAndRunsCommand(t *testing.T) {
 	}
 }
 
+func TestNoConfigStandaloneExitsCleanly(t *testing.T) {
+	dir := t.TempDir()
+	code, _, stderr := runConfik(t, dir)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !strings.Contains(stderr, "no .config directory found") {
+		t.Fatalf("expected warning about missing .config, got: %s", stderr)
+	}
+	if strings.Contains(stderr, "missing command") {
+		t.Fatalf("did not expect missing command error, got: %s", stderr)
+	}
+}
+
 func TestNoConfigPropagatesExitCode(t *testing.T) {
 	dir := t.TempDir()
 	code, _, _ := runConfik(t, dir, testCommandArgs(7)...)
@@ -139,6 +235,36 @@ func TestStagingCopiesAndCleans(t *testing.T) {
 	code, _, stderr := runConfik(t, dir, testCommandArgs(0)...)
 	if code != 0 {
 		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "example.txt")); err == nil {
+		t.Fatalf("expected staged file to be removed")
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, "example.txt")); err != nil {
+		t.Fatalf("expected source file to remain in .config")
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
+		t.Fatalf("expected manifest to be removed")
+	}
+}
+
+func TestStandaloneModeStagesAndCleansOnInterrupt(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	sourcePath := filepath.Join(configDir, "example.txt")
+	if err := os.WriteFile(sourcePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	code, _, stderr := runConfikUntilStagedThenInterrupt(t, dir, filepath.Join(dir, "example.txt"))
+	if code == 0 {
+		t.Fatalf("expected non-zero exit code on interrupt, got %d (stderr: %s)", code, stderr)
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, "example.txt")); err == nil {
@@ -271,6 +397,346 @@ func TestVSCodeExcludeCleanupRemovesEmptySettings(t *testing.T) {
 	}
 }
 
+func TestDryRunDoesNotWriteFiles(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	sourcePath := filepath.Join(configDir, "example.txt")
+	if err := os.WriteFile(sourcePath, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, "--dry-run", testCommandArgs(0)[0], testCommandArgs(0)[1], testCommandArgs(0)[2], testCommandArgs(0)[3])
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "example.txt")); err == nil {
+		t.Fatalf("expected no staged file in dry-run mode")
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
+		t.Fatalf("expected no manifest in dry-run mode")
+	}
+
+	combined := stdout + stderr
+	if !strings.Contains(combined, "dry-run") {
+		t.Fatalf("expected dry-run output, got: stdout=%s stderr=%s", stdout, stderr)
+	}
+}
+
+func TestDryRunWithNoFiles(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	code, stdout, _ := runConfik(t, dir, "--dry-run", testCommandArgs(0)[0], testCommandArgs(0)[1], testCommandArgs(0)[2], testCommandArgs(0)[3])
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d", code)
+	}
+	if !strings.Contains(stdout, "No files to stage") {
+		t.Fatalf("expected 'No files to stage' message, got stdout: %s", stdout)
+	}
+}
+
+func TestRegistrySkipsKnownPatterns(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	// cspell.json matches the registry pattern "cspell*.json"
+	registryFile := filepath.Join(configDir, "cspell.json")
+	if err := os.WriteFile(registryFile, []byte(`{"words":[]}`), 0o644); err != nil {
+		t.Fatalf("write registry file: %v", err)
+	}
+
+	// A normal file that should be staged
+	normalFile := filepath.Join(configDir, "myconfig.txt")
+	if err := os.WriteFile(normalFile, []byte("data"), 0o644); err != nil {
+		t.Fatalf("write normal file: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	// The registry file should NOT have been staged
+	if _, err := os.Stat(filepath.Join(dir, "cspell.json")); err == nil {
+		t.Fatalf("expected registry-matched file to be skipped")
+	}
+
+	// The normal file should have been staged and cleaned up
+	combined := stdout + stderr
+	if !strings.Contains(combined, "registry-skipped") {
+		t.Fatalf("expected registry-skipped in output, got: %s", combined)
+	}
+}
+
+func TestRegistryOverrideForcesCopy(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	// Write a config that overrides cspell.json
+	cfg := `{"registryOverride":["cspell.json"]}`
+	if err := os.WriteFile(filepath.Join(configDir, configFilename), []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	// cspell.json matches the registry but is overridden
+	registryFile := filepath.Join(configDir, "cspell.json")
+	if err := os.WriteFile(registryFile, []byte(`{"words":[]}`), 0o644); err != nil {
+		t.Fatalf("write registry file: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	// The registry file should have been staged (override) and then cleaned up
+	combined := stdout + stderr
+	if strings.Contains(combined, "registry-skipped") {
+		t.Fatalf("expected no registry-skipped for overridden file, got: %s", combined)
+	}
+	if !strings.Contains(combined, "staged 1 file") {
+		t.Fatalf("expected 'staged 1 file' in output, got: %s", combined)
+	}
+}
+
+func TestRegistryDisabledStagesAll(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	// cspell.json matches the registry, but registry is disabled via flag
+	registryFile := filepath.Join(configDir, "cspell.json")
+	if err := os.WriteFile(registryFile, []byte(`{"words":[]}`), 0o644); err != nil {
+		t.Fatalf("write registry file: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, append([]string{"--no-registry"}, testCommandArgs(0)...)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	combined := stdout + stderr
+	if strings.Contains(combined, "registry-skipped") {
+		t.Fatalf("expected no registry-skipped when registry disabled, got: %s", combined)
+	}
+	if !strings.Contains(combined, "staged 1 file") {
+		t.Fatalf("expected file to be staged when registry disabled, got: %s", combined)
+	}
+}
+
+func TestExistingFileIsSkipped(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	// Create a file in .config
+	if err := os.WriteFile(filepath.Join(configDir, "existing.txt"), []byte("from config"), 0o644); err != nil {
+		t.Fatalf("write config file: %v", err)
+	}
+
+	// Pre-create the same file in the project root
+	existingPath := filepath.Join(dir, "existing.txt")
+	if err := os.WriteFile(existingPath, []byte("original"), 0o644); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	// Verify the existing file was not overwritten
+	content, err := os.ReadFile(existingPath)
+	if err != nil {
+		t.Fatalf("read existing file: %v", err)
+	}
+	if string(content) != "original" {
+		t.Fatalf("expected existing file to remain unchanged, got %q", string(content))
+	}
+
+	combined := stdout + stderr
+	if !strings.Contains(combined, "skipped 1 existing") {
+		t.Fatalf("expected 'skipped 1 existing' in output, got: %s", combined)
+	}
+}
+
+func TestHelpFlagExitsCleanly(t *testing.T) {
+	dir := t.TempDir()
+	code, stdout, _ := runConfik(t, dir, "--help")
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for --help, got %d", code)
+	}
+	if !strings.Contains(stdout, "confik") || !strings.Contains(stdout, "--dry-run") {
+		t.Fatalf("expected help text, got: %s", stdout)
+	}
+}
+
+func TestCleanFlagEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	// Create a leftover staged file
+	leftover := filepath.Join(dir, "leftover.txt")
+	if err := os.WriteFile(leftover, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("write leftover: %v", err)
+	}
+
+	// Create a manifest pointing to the leftover
+	manifest := Manifest{
+		RunID:        "test-clean",
+		CreatedFiles: []string{"leftover.txt"},
+		CreatedDirs:  []string{},
+		CreatedAt:    "2024-01-01T00:00:00Z",
+	}
+	manifestPath := filepath.Join(configDir, manifestFilename)
+	if err := writeManifest(manifestPath, manifest); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, "--clean")
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for --clean, got %d (stderr: %s)", code, stderr)
+	}
+
+	if _, err := os.Stat(leftover); err == nil {
+		t.Fatalf("expected leftover file to be removed")
+	}
+	if _, err := os.Stat(manifestPath); err == nil {
+		t.Fatalf("expected manifest to be removed")
+	}
+	if !strings.Contains(stdout, "cleanup complete") {
+		t.Fatalf("expected cleanup complete message, got: %s", stdout)
+	}
+}
+
+func TestCleanWithNoConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	code, _, stderr := runConfik(t, dir, "--clean")
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for --clean with no .config, got %d", code)
+	}
+	if !strings.Contains(stderr, "no .config directory found") {
+		t.Fatalf("expected warning about missing .config, got: %s", stderr)
+	}
+}
+
+func TestEmptyConfigDirStagesNothing(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	code, _, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
+		t.Fatalf("expected no manifest for empty .config")
+	}
+}
+
+func TestNestedDirectoryStaging(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	nested := filepath.Join(configDir, "a", "b", "c")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+
+	deepFile := filepath.Join(nested, "deep.txt")
+	if err := os.WriteFile(deepFile, []byte("deep content"), 0o644); err != nil {
+		t.Fatalf("write deep file: %v", err)
+	}
+
+	topFile := filepath.Join(configDir, "top.txt")
+	if err := os.WriteFile(topFile, []byte("top content"), 0o644); err != nil {
+		t.Fatalf("write top file: %v", err)
+	}
+
+	code, _, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	// Verify both files were staged and cleaned up
+	if _, err := os.Stat(filepath.Join(dir, "top.txt")); err == nil {
+		t.Fatalf("expected top staged file to be cleaned up")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a", "b", "c", "deep.txt")); err == nil {
+		t.Fatalf("expected deep staged file to be cleaned up")
+	}
+
+	// Verify nested directories were cleaned up
+	if _, err := os.Stat(filepath.Join(dir, "a")); err == nil {
+		t.Fatalf("expected created directory 'a' to be cleaned up")
+	}
+
+	// Verify source files remain
+	if _, err := os.Stat(deepFile); err != nil {
+		t.Fatalf("expected source deep file to remain")
+	}
+	if _, err := os.Stat(topFile); err != nil {
+		t.Fatalf("expected source top file to remain")
+	}
+}
+
+func TestExcludePatternSkipsFiles(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	cfg := `{"exclude":["**/*.secret"]}`
+	if err := os.WriteFile(filepath.Join(configDir, configFilename), []byte(cfg), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(configDir, "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("write keep file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "hidden.secret"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write secret file: %v", err)
+	}
+
+	code, stdout, stderr := runConfik(t, dir, testCommandArgs(0)...)
+	if code != 0 {
+		t.Fatalf("expected exit code 0, got %d (stderr: %s)", code, stderr)
+	}
+
+	combined := stdout + stderr
+	if !strings.Contains(combined, "excluded 1 file") {
+		t.Fatalf("expected 'excluded 1 file' in output, got: %s", combined)
+	}
+	if !strings.Contains(combined, "staged 1 file") {
+		t.Fatalf("expected 'staged 1 file' in output, got: %s", combined)
+	}
+}
+
 func TestVSCodeExcludeCleanupKeepsJSONCCommentOnly(t *testing.T) {
 	dir := t.TempDir()
 	staged := filepath.Join(dir, "example.txt")
@@ -325,6 +791,53 @@ func runConfik(t *testing.T, dir string, args ...string) (int, string, string) {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
+	if err == nil {
+		return 0, stdout.String(), stderr.String()
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), stdout.String(), stderr.String()
+	}
+	t.Fatalf("unexpected error running confik: %v", err)
+	return 1, stdout.String(), stderr.String()
+}
+
+func runConfikUntilStagedThenInterrupt(t *testing.T, dir string, stagedFile string, args ...string) (int, string, string) {
+	t.Helper()
+
+	cmdArgs := append([]string{"-test.run=TestHelperProcess", "--"}, args...)
+	cmd := exec.Command(os.Args[0], cmdArgs...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CONFIK_HELPER=1", "CONFIK_CMD=1")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start confik: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(stagedFile); err == nil {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := os.Stat(stagedFile); err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		t.Fatalf("staged file did not appear before timeout")
+	}
+
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		t.Fatalf("failed to interrupt confik process: %v", err)
+	}
+
+	err := cmd.Wait()
 	if err == nil {
 		return 0, stdout.String(), stderr.String()
 	}

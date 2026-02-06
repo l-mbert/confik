@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -94,8 +93,7 @@ func run() error {
 			return nil
 		}
 		if parsed.Command == "" {
-			printHelp()
-			return errors.New("missing command")
+			return nil
 		}
 		return runCommandAndExit(parsed.Command, parsed.CommandArgs, func() error { return nil })
 	}
@@ -118,12 +116,6 @@ func run() error {
 	if parsed.Flags.Clean {
 		defer func() { _ = unlock() }()
 		return cleanLeftovers(cwd, true, false)
-	}
-
-	if parsed.Command == "" {
-		defer func() { _ = unlock() }()
-		printHelp()
-		return errors.New("missing command")
 	}
 
 	if exists(filepath.Join(configDir, manifestFilename)) {
@@ -300,8 +292,24 @@ func run() error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
+
+	if parsed.Command == "" {
+		_, _ = fmt.Fprintln(os.Stdout, "confik: standalone mode active. Press Ctrl+C to clean up and exit.")
+		sig := <-sigCh
+		// Restore default signal handling before cleanup so a second Ctrl+C force-exits.
+		signal.Stop(sigCh)
+		fmt.Fprintf(os.Stderr, "confik: received %s, cleaning up...\n", sig.String())
+		if err := cleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", err)
+			return combineErrors(fmt.Errorf("interrupted"), err)
+		}
+		return fmt.Errorf("interrupted")
+	}
+
 	go func() {
 		sig := <-sigCh
+		// Restore default signal handling before cleanup so a second Ctrl+C force-exits.
+		signal.Stop(sigCh)
 		fmt.Fprintf(os.Stderr, "confik: received %s, cleaning up...\n", sig.String())
 		if err := cleanup(); err != nil {
 			fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", err)
@@ -354,30 +362,21 @@ func parseArgs(args []string) (ParsedArgs, error) {
 }
 
 func printHelp() {
-	msg := fmt.Sprintf(`confik - stage .config files in project root while running a command
+	msg := `confik - stage .config files in project root while running a command
 
 Usage:
+  confik [options]
   confik [options] -- <command> [args...]
   confik [options] <command> [args...]
   confik --clean
 
 Options:
-  --dry-run         Show what would be copied/ignored without running command
+  --dry-run         Show what would be copied/ignored without writing files
   --clean           Remove leftover staged files and confik gitignore blocks
   --no-gitignore    Skip updating .git/info/exclude during the run
   --no-registry     Ignore the built-in registry skip list
   -h, --help        Show this help
-
-Config:
-  .config/%s
-  {
-    "exclude": ["**/*.local", "private/**"],
-    "registry": true,
-    "registryOverride": ["vite.config.ts"],
-    "gitignore": true,
-    "vscodeExclude": false
-  }
-`, configFilename)
+`
 
 	_, _ = fmt.Fprint(os.Stdout, msg)
 }
