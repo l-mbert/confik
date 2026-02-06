@@ -1,6 +1,6 @@
 {
   "name": "@confik/darwin-x64",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "confik binary for darwin x64",
   "os": [
     "darwin"
