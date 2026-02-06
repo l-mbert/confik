@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -62,22 +60,6 @@ type ConfikConfig struct {
 	Path             string
 }
 
-type GitContext struct {
-	GitRoot     string `json:"gitRoot"`
-	GitDir      string `json:"gitDir"`
-	ExcludePath string `json:"excludePath"`
-	RunID       string `json:"runId"`
-}
-
-type Manifest struct {
-	RunID        string         `json:"runId"`
-	CreatedFiles []string       `json:"createdFiles"`
-	CreatedDirs  []string       `json:"createdDirs"`
-	Gitignore    *GitContext    `json:"gitignore"`
-	VSCode       *VSCodeContext `json:"vscode,omitempty"`
-	CreatedAt    string         `json:"createdAt"`
-}
-
 type RegistryPayload struct {
 	Patterns []string `json:"patterns"`
 }
@@ -115,7 +97,7 @@ func run() error {
 			printHelp()
 			return errors.New("missing command")
 		}
-		return runCommandAndExit(parsed.Command, parsed.CommandArgs, func() {})
+		return runCommandAndExit(parsed.Command, parsed.CommandArgs, func() error { return nil })
 	}
 
 	lockPath := filepath.Join(configDir, lockFilename)
@@ -124,26 +106,30 @@ func run() error {
 		return err
 	}
 	lockHeld := true
-	unlock := func() {
+	unlock := func() error {
 		if lockHeld {
-			_ = lock.Unlock()
+			err := lock.Unlock()
 			lockHeld = false
+			return err
 		}
+		return nil
 	}
 
 	if parsed.Flags.Clean {
-		defer unlock()
+		defer func() { _ = unlock() }()
 		return cleanLeftovers(cwd, true, false)
 	}
 
 	if parsed.Command == "" {
-		defer unlock()
+		defer func() { _ = unlock() }()
 		printHelp()
 		return errors.New("missing command")
 	}
 
 	if exists(filepath.Join(configDir, manifestFilename)) {
-		_ = cleanLeftovers(cwd, false, true)
+		if err := cleanLeftovers(cwd, false, true); err != nil {
+			fmt.Fprintf(os.Stderr, "confik: pre-run cleanup incomplete (%v)\n", err)
+		}
 	}
 
 	config := loadConfig(configDir)
@@ -162,68 +148,73 @@ func run() error {
 	skippedExcluded := []string{}
 	skippedRegistry := []string{}
 
+	var vscodeContext *VSCodeContext
+	var gitContext *GitContext
 	runID := createRunID()
 	manifestPath := filepath.Join(configDir, manifestFilename)
-
-	filesToCopy := []string{}
-	if isDirectory(configDir) {
-		_ = filepath.WalkDir(configDir, func(pathname string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return nil
-			}
-			if d.IsDir() {
-				return nil
-			}
-			filesToCopy = append(filesToCopy, pathname)
-			return nil
-		})
+	cleanupStaging := func() error {
+		return cleanupStagedArtifacts(manifestPath, createdFiles, createdDirs, vscodeContext, gitContext, unlock, true)
 	}
 
-	for _, filePath := range filesToCopy {
-		rel, err := filepath.Rel(configDir, filePath)
+	dirCache := map[string]bool{}
+	walkErr := filepath.WalkDir(configDir, func(pathname string, d fs.DirEntry, entryErr error) error {
+		if entryErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+
+		rel, err := filepath.Rel(configDir, pathname)
 		if err != nil {
-			continue
+			return nil
 		}
 
 		relPosix := filepath.ToSlash(rel)
 		if relPosix == configFilename || relPosix == manifestFilename || relPosix == lockFilename {
-			continue
+			return nil
 		}
 
 		if matchesPatternList(relPosix, config.Exclude, true) {
 			skippedExcluded = append(skippedExcluded, relPosix)
-			continue
+			return nil
 		}
 
 		if useRegistry && matchesPatternList(relPosix, registryPatterns, true) {
 			if !matchesPatternList(relPosix, config.RegistryOverride, true) {
 				skippedRegistry = append(skippedRegistry, relPosix)
-				continue
+				return nil
 			}
 		}
 
 		dest := filepath.Join(cwd, rel)
 		if exists(dest) {
 			skippedExisting = append(skippedExisting, relPosix)
-			continue
+			return nil
 		}
 
-		ok, err := ensureDir(filepath.Dir(dest), &createdDirs, parsed.Flags.DryRun)
-		if err != nil || !ok {
+		ok, err := ensureDirWithCache(filepath.Dir(dest), &createdDirs, parsed.Flags.DryRun, dirCache)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			skippedExisting = append(skippedExisting, relPosix)
-			continue
+			return nil
 		}
 
 		if !parsed.Flags.DryRun {
-			if err := copyFile(filePath, dest); err != nil {
+			if err := copyFile(pathname, dest); err != nil {
 				return err
 			}
 		}
 		createdFiles = append(createdFiles, dest)
+		return nil
+	})
+	if walkErr != nil {
+		return combineErrors(walkErr, cleanupStaging())
 	}
 
 	stagedFiles := append([]string(nil), createdFiles...)
-	var vscodeContext *VSCodeContext
 	if !parsed.Flags.DryRun && config.VSCodeExclude && len(stagedFiles) > 0 {
 		ctx, err := applyVSCodeExcludes(cwd, stagedFiles, &createdFiles, &createdDirs)
 		if err != nil {
@@ -233,7 +224,6 @@ func run() error {
 		}
 	}
 
-	var gitContext *GitContext
 	if !parsed.Flags.DryRun && useGitignore && len(createdFiles) > 0 {
 		gitRoot := findGitRoot(cwd)
 		if gitRoot != "" {
@@ -280,56 +270,42 @@ func run() error {
 
 	if !parsed.Flags.DryRun && len(createdFiles) > 0 {
 		if err := writeManifest(manifestPath, manifest); err != nil {
-			return err
+			return combineErrors(err, cleanupStaging())
 		}
 	}
 
 	printSummary(parsed.Flags.DryRun, createdFiles, skippedExisting, skippedExcluded, skippedRegistry)
 
 	if parsed.Flags.DryRun {
-		unlock()
+		if err := unlock(); err != nil {
+			return err
+		}
 		if len(createdFiles) > 0 {
-			fmt.Fprintln(os.Stdout, "confik: dry-run complete. No files were written.")
+			_, _ = fmt.Fprintln(os.Stdout, "confik: dry-run complete. No files were written.")
 		} else {
-			fmt.Fprintln(os.Stdout, "confik: dry-run complete. No files to stage.")
+			_, _ = fmt.Fprintln(os.Stdout, "confik: dry-run complete. No files to stage.")
 		}
 		return nil
 	}
 
 	cleanupOnce := sync.Once{}
-	cleanup := func() {
+	var cleanupErr error
+	cleanup := func() error {
 		cleanupOnce.Do(func() {
-			if vscodeContext != nil {
-				_ = removeVSCodeExcludes(vscodeContext)
-			}
-			for _, filePath := range createdFiles {
-				if vscodeContext != nil && vscodeContext.SettingsCreated && filePath == vscodeContext.SettingsPath {
-					continue
-				}
-				_ = os.Remove(filePath)
-			}
-
-			uniqueDirs := uniqueStrings(createdDirs)
-			sort.Slice(uniqueDirs, func(i, j int) bool { return len(uniqueDirs[i]) > len(uniqueDirs[j]) })
-			for _, dirPath := range uniqueDirs {
-				removeDirIfEmpty(dirPath)
-			}
-
-			if gitContext != nil {
-				_ = removeGitIgnoreBlock(gitContext.ExcludePath, gitContext.RunID)
-			}
-
-			_ = os.Remove(manifestPath)
-			unlock()
+			cleanupErr = cleanupStaging()
 		})
+		return cleanupErr
 	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
 	go func() {
 		sig := <-sigCh
 		fmt.Fprintf(os.Stderr, "confik: received %s, cleaning up...\n", sig.String())
-		cleanup()
+		if err := cleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", err)
+		}
 		os.Exit(1)
 	}()
 
@@ -403,7 +379,7 @@ Config:
   }
 `, configFilename)
 
-	fmt.Fprint(os.Stdout, msg)
+	_, _ = fmt.Fprint(os.Stdout, msg)
 }
 
 func loadConfig(configDir string) ConfikConfig {
@@ -421,6 +397,7 @@ func loadConfig(configDir string) ConfikConfig {
 		return config
 	}
 
+	// #nosec G304 -- configPath is derived from cwd/.config and not user-supplied absolute input.
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "confik: failed to read %s; using defaults (%v)\n", configPath, err)
@@ -486,89 +463,6 @@ func matchesPatternList(target string, patterns []string, matchBase bool) bool {
 	return false
 }
 
-func isDirectory(dirPath string) bool {
-	stat, err := os.Stat(dirPath)
-	if err != nil {
-		return false
-	}
-	return stat.IsDir()
-}
-
-func exists(pathname string) bool {
-	_, err := os.Stat(pathname)
-	return err == nil
-}
-
-func ensureDir(dirPath string, createdDirs *[]string, dryRun bool) (bool, error) {
-	resolved, err := filepath.Abs(dirPath)
-	if err != nil {
-		return false, err
-	}
-	parts := strings.Split(resolved, string(filepath.Separator))
-	if filepath.IsAbs(resolved) {
-		parts[0] = string(filepath.Separator)
-	}
-
-	current := ""
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-		if current == "" || current == string(filepath.Separator) {
-			current = filepath.Join(current, part)
-		} else {
-			current = filepath.Join(current, part)
-		}
-		info, err := os.Stat(current)
-		if err == nil {
-			if !info.IsDir() {
-				return false, nil
-			}
-			continue
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			return false, err
-		}
-		if dryRun {
-			continue
-		}
-		if err := os.Mkdir(current, 0o755); err != nil {
-			return false, err
-		}
-		*createdDirs = append(*createdDirs, current)
-	}
-
-	return true, nil
-}
-
-func copyFile(src, dest string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = out.Close()
-	}()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	if err := out.Sync(); err != nil {
-		return err
-	}
-	if info, err := in.Stat(); err == nil {
-		_ = os.Chmod(dest, info.Mode())
-	}
-
-	return nil
-}
-
 func createRunID() string {
 	now := time.Now().UTC().Format("20060102T150405")
 	buf := make([]byte, 4)
@@ -576,222 +470,6 @@ func createRunID() string {
 		return fmt.Sprintf("%s-%x", now, buf)
 	}
 	return fmt.Sprintf("%s-%d", now, time.Now().UnixNano())
-}
-
-func findGitRoot(start string) string {
-	current, err := filepath.Abs(start)
-	if err != nil {
-		return ""
-	}
-	for {
-		gitPath := filepath.Join(current, ".git")
-		if exists(gitPath) {
-			return current
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return ""
-		}
-		current = parent
-	}
-}
-
-func resolveGitDir(gitRoot string) (string, error) {
-	gitPath := filepath.Join(gitRoot, ".git")
-	info, err := os.Stat(gitPath)
-	if err != nil {
-		return "", err
-	}
-	if info.IsDir() {
-		return gitPath, nil
-	}
-	data, err := os.ReadFile(gitPath)
-	if err != nil {
-		return "", err
-	}
-	content := strings.TrimSpace(string(data))
-	if !strings.HasPrefix(content, "gitdir:") {
-		return "", errors.New("unable to resolve git directory")
-	}
-	gitDir := strings.TrimSpace(strings.TrimPrefix(content, "gitdir:"))
-	return filepath.Abs(filepath.Join(gitRoot, gitDir))
-}
-
-func appendGitIgnoreBlock(gitDir, runID string, paths []string) (string, error) {
-	infoDir := filepath.Join(gitDir, "info")
-	excludePath := filepath.Join(infoDir, "exclude")
-
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		return "", err
-	}
-
-	blockStart := fmt.Sprintf("# confik:start:%s", runID)
-	blockEnd := fmt.Sprintf("# confik:end:%s", runID)
-
-	existing := ""
-	if data, err := os.ReadFile(excludePath); err == nil {
-		existing = string(data)
-		if strings.Contains(existing, blockStart) {
-			return excludePath, nil
-		}
-	}
-
-	lines := append([]string{blockStart}, paths...)
-	lines = append(lines, blockEnd)
-	block := strings.Join(lines, "\n") + "\n"
-
-	if existing != "" && !strings.HasSuffix(existing, "\n") {
-		existing += "\n"
-	}
-
-	return excludePath, os.WriteFile(excludePath, []byte(existing+block), 0o644)
-}
-
-func removeGitIgnoreBlock(excludePath, runID string) error {
-	data, err := os.ReadFile(excludePath)
-	if err != nil {
-		return nil
-	}
-
-	updated := removeGitIgnoreBlocks(string(data), runID)
-	if updated == string(data) {
-		return nil
-	}
-
-	return os.WriteFile(excludePath, []byte(updated), 0o644)
-}
-
-func removeAllGitIgnoreBlocks(excludePath string) error {
-	data, err := os.ReadFile(excludePath)
-	if err != nil {
-		return nil
-	}
-
-	updated := removeGitIgnoreBlocks(string(data), "")
-	if updated == string(data) {
-		return nil
-	}
-
-	return os.WriteFile(excludePath, []byte(updated), 0o644)
-}
-
-func removeGitIgnoreBlocks(content, runID string) string {
-	lines := strings.Split(content, "\n")
-	out := []string{}
-	skipping := false
-	targetStart := ""
-	targetEnd := ""
-	if runID != "" {
-		targetStart = fmt.Sprintf("# confik:start:%s", runID)
-		targetEnd = fmt.Sprintf("# confik:end:%s", runID)
-	}
-
-	for _, line := range lines {
-		if strings.HasPrefix(line, "# confik:start:") {
-			if runID == "" || line == targetStart {
-				skipping = true
-				continue
-			}
-		}
-		if skipping {
-			if strings.HasPrefix(line, "# confik:end:") {
-				if runID == "" || line == targetEnd {
-					skipping = false
-					continue
-				}
-			}
-			continue
-		}
-		out = append(out, line)
-	}
-
-	result := strings.Join(out, "\n")
-	if strings.HasSuffix(content, "\n") && !strings.HasSuffix(result, "\n") {
-		result += "\n"
-	}
-	return result
-}
-
-func writeManifest(pathname string, manifest Manifest) error {
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return os.WriteFile(pathname, data, 0o644)
-}
-
-func readManifest(pathname string) (*Manifest, error) {
-	data, err := os.ReadFile(pathname)
-	if err != nil {
-		return nil, err
-	}
-	var manifest Manifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, err
-	}
-	return &manifest, nil
-}
-
-func cleanLeftovers(cwd string, force bool, quiet bool) error {
-	configDir := filepath.Join(cwd, ".config")
-	manifestPath := filepath.Join(configDir, manifestFilename)
-	cleaned := false
-
-	if exists(manifestPath) {
-		manifest, err := readManifest(manifestPath)
-		if err != nil {
-			manifest = nil
-		}
-		if manifest != nil {
-			if manifest.VSCode != nil {
-				_ = removeVSCodeExcludes(manifest.VSCode)
-			}
-			settingsRel := ""
-			if manifest.VSCode != nil && manifest.VSCode.SettingsCreated {
-				if rel, err := filepath.Rel(cwd, manifest.VSCode.SettingsPath); err == nil {
-					settingsRel = filepath.ToSlash(rel)
-				}
-			}
-			for _, rel := range manifest.CreatedFiles {
-				if settingsRel != "" && rel == settingsRel {
-					continue
-				}
-				_ = os.Remove(filepath.Join(cwd, rel))
-			}
-			dirs := make([]string, 0, len(manifest.CreatedDirs))
-			for _, rel := range manifest.CreatedDirs {
-				dirs = append(dirs, filepath.Join(cwd, rel))
-			}
-			sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
-			for _, dir := range dirs {
-				removeDirIfEmpty(dir)
-			}
-			if manifest.Gitignore != nil && manifest.Gitignore.ExcludePath != "" && manifest.Gitignore.RunID != "" {
-				_ = removeGitIgnoreBlock(manifest.Gitignore.ExcludePath, manifest.Gitignore.RunID)
-			}
-			if manifest.VSCode != nil {
-				_ = removeVSCodeExcludes(manifest.VSCode)
-			}
-			_ = os.Remove(manifestPath)
-			cleaned = true
-		}
-	}
-
-	if !cleaned && force {
-		gitRoot := findGitRoot(cwd)
-		if gitRoot != "" {
-			if gitDir, err := resolveGitDir(gitRoot); err == nil {
-				excludePath := filepath.Join(gitDir, "info", "exclude")
-				_ = removeAllGitIgnoreBlocks(excludePath)
-			}
-		}
-	}
-
-	if !quiet {
-		fmt.Fprintln(os.Stdout, "confik: cleanup complete")
-	}
-	return nil
 }
 
 func printSummary(dryRun bool, createdFiles, skippedExisting, skippedExcluded, skippedRegistry []string) {
@@ -813,7 +491,7 @@ func printSummary(dryRun bool, createdFiles, skippedExisting, skippedExcluded, s
 		lines = append(lines, fmt.Sprintf("confik: registry-skipped %d file(s)", len(skippedRegistry)))
 	}
 	if len(lines) > 0 {
-		fmt.Fprintln(os.Stdout, strings.Join(lines, "\n"))
+		_, _ = fmt.Fprintln(os.Stdout, strings.Join(lines, "\n"))
 	}
 }
 
@@ -838,49 +516,20 @@ func runCommand(command string, args []string) (int, error) {
 	return 1, fmt.Errorf("failed to run %s (%v)", command, err)
 }
 
-func runCommandAndExit(command string, args []string, cleanup func()) error {
+func runCommandAndExit(command string, args []string, cleanup func() error) error {
 	code, err := runCommand(command, args)
-	cleanup()
+	cleanupErr := cleanup()
+	if cleanupErr != nil {
+		fmt.Fprintf(os.Stderr, "confik: cleanup incomplete (%v)\n", cleanupErr)
+	}
 	if err != nil {
-		return err
+		return combineErrors(err, cleanupErr)
 	}
 	if code != 0 {
 		os.Exit(code)
 	}
+	if cleanupErr != nil {
+		return cleanupErr
+	}
 	return nil
-}
-
-func removeDirIfEmpty(dirPath string) {
-	entries, err := os.ReadDir(dirPath)
-	if err != nil {
-		return
-	}
-	if len(entries) == 0 {
-		_ = os.Remove(dirPath)
-	}
-}
-
-func uniqueStrings(input []string) []string {
-	seen := map[string]struct{}{}
-	out := []string{}
-	for _, value := range input {
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
-func toRelativeList(base string, values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		rel, err := filepath.Rel(base, value)
-		if err != nil {
-			continue
-		}
-		out = append(out, filepath.ToSlash(rel))
-	}
-	return out
 }

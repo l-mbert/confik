@@ -27,7 +27,7 @@ func applyVSCodeExcludes(cwd string, stagedFiles []string, createdFiles *[]strin
 	settingsDir := filepath.Join(cwd, ".vscode")
 	settingsPath := filepath.Join(settingsDir, "settings.json")
 	if !exists(settingsPath) {
-		ok, err := ensureDir(settingsDir, createdDirs, false)
+		ok, err := ensureDirWithCache(settingsDir, createdDirs, false, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -46,7 +46,7 @@ func applyVSCodeExcludes(cwd string, stagedFiles []string, createdFiles *[]strin
 			return nil, err
 		}
 		data = append(data, '\n')
-		if err := os.WriteFile(settingsPath, data, 0o644); err != nil {
+		if err := os.WriteFile(settingsPath, data, 0o600); err != nil {
 			return nil, err
 		}
 		*createdFiles = append(*createdFiles, settingsPath)
@@ -58,6 +58,7 @@ func applyVSCodeExcludes(cwd string, stagedFiles []string, createdFiles *[]strin
 		}, nil
 	}
 
+	// #nosec G304 -- settingsPath is rooted at cwd/.vscode/settings.json.
 	content, err := os.ReadFile(settingsPath)
 	if err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func applyVSCodeExcludes(cwd string, stagedFiles []string, createdFiles *[]strin
 	}
 
 	packed := value.Pack()
-	if err := os.WriteFile(settingsPath, packed, 0o644); err != nil {
+	if err := os.WriteFile(settingsPath, packed, 0o600); err != nil {
 		return nil, err
 	}
 
@@ -117,6 +118,7 @@ func removeVSCodeExcludes(ctx *VSCodeContext) error {
 	if ctx == nil || ctx.SettingsPath == "" {
 		return nil
 	}
+	// #nosec G304 -- ctx.SettingsPath is persisted from confik-managed VS Code context.
 	content, err := os.ReadFile(ctx.SettingsPath)
 	if err != nil {
 		return nil
@@ -151,7 +153,7 @@ func removeVSCodeExcludes(ctx *VSCodeContext) error {
 	}
 
 	packed := value.Pack()
-	if err := os.WriteFile(ctx.SettingsPath, packed, 0o644); err != nil {
+	if err := os.WriteFile(ctx.SettingsPath, packed, 0o600); err != nil {
 		return err
 	}
 

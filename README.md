@@ -1,6 +1,6 @@
 # confik
 
-`confik` is a small CLI that temporarily stages files from `.config/` into the project root while a command runs, then cleans them up afterward. The published npm package ships native Go binaries, with a tiny Node.js shim that dispatches to the correct platform binary.
+`confik` is a small CLI that temporarily stages files from `.config/` into the project root while a command runs, then cleans them up afterward.
 
 ## Install
 

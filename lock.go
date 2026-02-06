@@ -11,7 +11,8 @@ type FileLock struct {
 }
 
 func acquireLock(lockPath string) (*FileLock, error) {
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+	// #nosec G304 -- lockPath is derived from cwd/.config/lockFilename.
+	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err
 	}

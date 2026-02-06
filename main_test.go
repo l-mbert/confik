@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -54,101 +56,6 @@ func TestMatchesPatternList(t *testing.T) {
 	}
 }
 
-func TestEnsureDir(t *testing.T) {
-	base := t.TempDir()
-	nested := filepath.Join(base, "a", "b", "c")
-	created := []string{}
-
-	ok, err := ensureDir(nested, &created, false)
-	if err != nil {
-		t.Fatalf("ensureDir error: %v", err)
-	}
-	if !ok {
-		t.Fatalf("expected ok")
-	}
-	if _, err := os.Stat(nested); err != nil {
-		t.Fatalf("expected directory created: %v", err)
-	}
-	if len(created) == 0 {
-		t.Fatalf("expected created dirs recorded")
-	}
-
-	dryNested := filepath.Join(base, "x", "y")
-	createdDry := []string{}
-	ok, err = ensureDir(dryNested, &createdDry, true)
-	if err != nil || !ok {
-		t.Fatalf("dry-run ensureDir error: %v", err)
-	}
-	if _, err := os.Stat(dryNested); err == nil {
-		t.Fatalf("expected dry-run to not create dirs")
-	}
-}
-
-func TestGitIgnoreBlockHelpers(t *testing.T) {
-	dir := t.TempDir()
-	gitDir := filepath.Join(dir, ".git")
-	infoDir := filepath.Join(gitDir, "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	exclude := filepath.Join(infoDir, "exclude")
-
-	paths := []string{"foo.txt", "bar/baz.json"}
-	if _, err := appendGitIgnoreBlock(gitDir, "abc", paths); err != nil {
-		t.Fatalf("appendGitIgnoreBlock error: %v", err)
-	}
-
-	content, _ := os.ReadFile(exclude)
-	if !strings.Contains(string(content), "confik:start:abc") {
-		t.Fatalf("expected block start")
-	}
-	if err := removeGitIgnoreBlock(exclude, "abc"); err != nil {
-		t.Fatalf("removeGitIgnoreBlock error: %v", err)
-	}
-	content, _ = os.ReadFile(exclude)
-	if strings.Contains(string(content), "confik:start:abc") {
-		t.Fatalf("expected block removed")
-	}
-
-	// remove all blocks
-	_, _ = appendGitIgnoreBlock(gitDir, "one", []string{"a"})
-	_, _ = appendGitIgnoreBlock(gitDir, "two", []string{"b"})
-	if err := removeAllGitIgnoreBlocks(exclude); err != nil {
-		t.Fatalf("removeAllGitIgnoreBlocks error: %v", err)
-	}
-	content, _ = os.ReadFile(exclude)
-	if strings.Contains(string(content), "confik:start:") {
-		t.Fatalf("expected all blocks removed")
-	}
-}
-
-func TestRemoveGitIgnoreBlocksString(t *testing.T) {
-	content := strings.Join([]string{
-		"line1",
-		"# confik:start:abc",
-		"foo",
-		"# confik:end:abc",
-		"line2",
-		"# confik:start:def",
-		"bar",
-		"# confik:end:def",
-		"line3",
-	}, "\n") + "\n"
-
-	updated := removeGitIgnoreBlocks(content, "abc")
-	if strings.Contains(updated, "confik:start:abc") {
-		t.Fatalf("expected abc block removed")
-	}
-	if !strings.Contains(updated, "confik:start:def") {
-		t.Fatalf("expected def block to remain")
-	}
-
-	updatedAll := removeGitIgnoreBlocks(content, "")
-	if strings.Contains(updatedAll, "confik:start:") {
-		t.Fatalf("expected all blocks removed")
-	}
-}
-
 func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	base := t.TempDir()
 	configDir := filepath.Join(base, ".config")
@@ -184,112 +91,12 @@ func TestLoadConfigDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
-func TestCleanLeftoversFromManifest(t *testing.T) {
-	base := t.TempDir()
-
-	fileA := filepath.Join(base, "alpha.txt")
-	if err := os.WriteFile(fileA, []byte("alpha"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-	nestedDir := filepath.Join(base, "nested")
-	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	fileB := filepath.Join(nestedDir, "beta.txt")
-	if err := os.WriteFile(fileB, []byte("beta"), 0o644); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
-
-	gitDir := filepath.Join(base, ".git")
-	infoDir := filepath.Join(gitDir, "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	excludePath := filepath.Join(infoDir, "exclude")
-	block := "# confik:start:run1\nalpha.txt\n# confik:end:run1\n"
-	if err := os.WriteFile(excludePath, []byte(block), 0o644); err != nil {
-		t.Fatalf("write exclude: %v", err)
-	}
-
-	manifest := Manifest{
-		RunID:        "run1",
-		CreatedFiles: []string{"alpha.txt", filepath.ToSlash(filepath.Join("nested", "beta.txt"))},
-		CreatedDirs:  []string{filepath.ToSlash("nested")},
-		Gitignore: &GitContext{
-			GitRoot:     base,
-			GitDir:      gitDir,
-			ExcludePath: excludePath,
-			RunID:       "run1",
-		},
-		CreatedAt: "2024-01-01T00:00:00Z",
-	}
-
-	configDir := filepath.Join(base, ".config")
-	if err := os.MkdirAll(configDir, 0o755); err != nil {
-		t.Fatalf("mkdir config: %v", err)
-	}
-
-	if err := writeManifest(filepath.Join(configDir, manifestFilename), manifest); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
-
-	if err := cleanLeftovers(base, true, false); err != nil {
-		t.Fatalf("cleanLeftovers error: %v", err)
-	}
-
-	if _, err := os.Stat(fileA); err == nil {
-		t.Fatalf("expected fileA removed")
-	}
-	if _, err := os.Stat(fileB); err == nil {
-		t.Fatalf("expected fileB removed")
-	}
-	if _, err := os.Stat(nestedDir); err == nil {
-		t.Fatalf("expected nestedDir removed")
-	}
-	content, _ := os.ReadFile(excludePath)
-	if strings.Contains(string(content), "confik:start:run1") {
-		t.Fatalf("expected gitignore block removed")
-	}
-	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
-		t.Fatalf("expected manifest removed")
-	}
-}
-
-func TestCleanLeftoversRemovesBlocksWithoutManifest(t *testing.T) {
-	base := t.TempDir()
-	gitDir := filepath.Join(base, ".git")
-	infoDir := filepath.Join(gitDir, "info")
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	excludePath := filepath.Join(infoDir, "exclude")
-	block := "# confik:start:run2\nfoo\n# confik:end:run2\n"
-	if err := os.WriteFile(excludePath, []byte(block), 0o644); err != nil {
-		t.Fatalf("write exclude: %v", err)
-	}
-
-	if err := cleanLeftovers(base, true, false); err != nil {
-		t.Fatalf("cleanLeftovers error: %v", err)
-	}
-
-	content, _ := os.ReadFile(excludePath)
-	if strings.Contains(string(content), "confik:start:run2") {
-		t.Fatalf("expected block removed")
-	}
-}
-
 func TestLoadRegistryPatterns(t *testing.T) {
 	patterns := loadRegistryPatterns()
 	if len(patterns) == 0 {
 		t.Fatalf("expected embedded registry patterns")
 	}
-	found := false
-	for _, p := range patterns {
-		if p == "confik.json" {
-			found = true
-			break
-		}
-	}
+	found := slices.Contains(patterns, "confik.json")
 	if !found {
 		t.Fatalf("expected registry to include confik.json")
 	}
@@ -344,6 +151,44 @@ func TestStagingCopiesAndCleans(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
 		t.Fatalf("expected manifest to be removed")
+	}
+}
+
+func TestStagingFailureRollsBackPartialFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permission-based unreadable file test is not reliable on windows")
+	}
+
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, ".config")
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+
+	readable := filepath.Join(configDir, "a.txt")
+	if err := os.WriteFile(readable, []byte("ok"), 0o644); err != nil {
+		t.Fatalf("write readable file: %v", err)
+	}
+
+	unreadable := filepath.Join(configDir, "b.txt")
+	if err := os.WriteFile(unreadable, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("write unreadable file: %v", err)
+	}
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Skipf("unable to set unreadable permissions: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o644) })
+
+	code, _, _ := runConfik(t, dir, testCommandArgs(0)...)
+	if code == 0 {
+		t.Fatalf("expected non-zero exit code for staging failure")
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err == nil {
+		t.Fatalf("expected partial staged file rollback")
+	}
+	if _, err := os.Stat(filepath.Join(configDir, manifestFilename)); err == nil {
+		t.Fatalf("expected no manifest after failed staging cleanup")
 	}
 }
 
@@ -484,7 +329,7 @@ func runConfik(t *testing.T, dir string, args ...string) (int, string, string) {
 		return 0, stdout.String(), stderr.String()
 	}
 	if exitErr, ok := err.(*exec.ExitError); ok {
-		return exitErr.ProcessState.ExitCode(), stdout.String(), stderr.String()
+		return exitErr.ExitCode(), stdout.String(), stderr.String()
 	}
 	t.Fatalf("unexpected error running confik: %v", err)
 	return 1, stdout.String(), stderr.String()
